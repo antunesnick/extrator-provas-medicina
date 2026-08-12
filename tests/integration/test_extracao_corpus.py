@@ -58,13 +58,19 @@ CORPUS = [
         True,
     ),
     ("banca1 - Copia - Copia (2)/medico_medicina_da_familia_e_comunidade.pdf", 40, False, True),
+    # Prova OCRizada, e por isso o unico caso com numeracao incompleta aqui: o
+    # OCR **apagou os digitos** do marcador da questao 4, sobrando ". A evolucao
+    # do SUS". Nao ha marcador a ler -- nenhuma heuristica recupera o que nao
+    # esta no arquivo. As outras 49 saem, inclusive a 1, cujo "01." o OCR leu
+    # como "o1.".
+    ("banca1 - Copia - Copia (3)/prova13.pdf", 49, True, True),
 ]
 
-# Nao entra em `CORPUS`: a fonte foi embutida sem tabela `ToUnicode` e a camada
-# de texto devolve codigo de glifo em vez de letra. O contrato aqui nao e
-# extrair -- e **recusar com a mensagem certa**, o que o teste no fim do modulo
-# verifica. Enquanto nao houver OCR, este arquivo nao tem questoes a oferecer.
-ILEGIVEL = "banca1 - Copia - Copia (3)/prova13.pdf"
+# Numeros que a prova NAO cobre, por defeito do proprio arquivo. Sem esta
+# excecao o teste de numeracao contigua exigiria do extrator algo que o PDF nao
+# oferece -- e a saida seria afrouxar o teste para todas as provas, perdendo a
+# verificacao onde ela funciona.
+BURACOS_CONHECIDOS = {"banca1 - Copia - Copia (3)/prova13.pdf": {4}}
 
 # Teto de questoes marcadas para revisao, por prova. Nao e uma meta de zero: as
 # tres que sobram estao corretamente marcadas (uma questao que perdeu mesmo as
@@ -80,6 +86,8 @@ REVISAO_ESPERADA = {
     "banca1 - Copia - Copia/"
     "especialidades_com_acesse_direto_medicina_da_familia_e_comunidade.pdf": 1,
     "banca1 - Copia - Copia (2)/medico_medicina_da_familia_e_comunidade.pdf": 0,
+    # OCR: quatro questoes ficaram com alternativas incompletas no proprio texto.
+    "banca1 - Copia - Copia (3)/prova13.pdf": 4,
 }
 
 
@@ -115,7 +123,10 @@ class TestCorpusReal:
         self, extraidos, nome, total, duas_colunas, tem_rodape
     ):
         _, _, resultado = extraidos[nome]
-        assert [q.numero for q in resultado.questoes] == list(range(1, total + 1))
+        buracos = BURACOS_CONHECIDOS.get(nome, set())
+        ultimo = total + len(buracos)
+        esperado = [n for n in range(1, ultimo + 1) if n not in buracos]
+        assert [q.numero for q in resultado.questoes] == esperado
 
     def test_layout_detectado(self, extraidos, nome, total, duas_colunas, tem_rodape):
         documento, _, _ = extraidos[nome]
@@ -150,7 +161,11 @@ class TestCorpusReal:
         contagem = Counter(len(q.alternativas) for q in resultado.questoes)
         (modo, quantas), *_ = contagem.most_common()
         assert modo in (4, 5), f"padrao improvavel de {modo} alternativas"
-        assert quantas >= total * 0.97, f"alternativas irregulares: {dict(contagem)}"
+        # As que fogem do padrao tem de ser exatamente as que ja foram
+        # reconhecidas como duvidosas. Amarrar os dois numeros impede a saida
+        # facil de afrouxar este teste: quem quiser aceitar mais irregularidade
+        # tem de assumi-la tambem em REVISAO_ESPERADA, onde ela fica visivel.
+        assert len(resultado.questoes) - quantas <= REVISAO_ESPERADA[nome]
 
     def test_enunciados_nao_vazios(self, extraidos, nome, total, duas_colunas, tem_rodape):
         _, _, resultado = extraidos[nome]
@@ -209,19 +224,44 @@ def test_nenhum_rodape_vaza_para_o_conteudo(extraidos, nome, total, duas_colunas
             assert trecho[:30] not in questao.enunciado.lower()
 
 
-@pytest.mark.skipif(not (FIXTURES / ILEGIVEL).is_file(), reason="PDF ilegivel ausente")
+def _pdf_ilegivel(destino: Path) -> Path:
+    """PDF com camada de texto farta que nao diz nada.
+
+    Reproduz a condicao real: fonte embutida **sem tabela `ToUnicode`**, cujo
+    texto extraido sao os codigos internos dos glifos. Aqui os codigos caem na
+    Area de Uso Privado do Unicode (U+F000+), que e exatamente onde uma fonte de
+    simbolos mapeia os seus -- nao sao letra, nem digito, nem pontuacao.
+
+    O fixture e sintetico de proposito. A prova real que motivou esta checagem
+    foi reprocessada com OCR pelo dono do acervo e hoje se le normalmente (ela
+    esta em `CORPUS`); amarrar o teste a um arquivo que pode ser consertado a
+    qualquer momento tornaria a guarda silenciosamente nao testada.
+    """
+    import fitz
+
+    lixo = "".join(chr(0xF000 + (i % 80)) for i in range(70))
+    documento = fitz.open()
+    for _ in range(3):
+        pagina = documento.new_page()
+        for linha in range(18):
+            pagina.insert_text((50, 60 + linha * 20), lixo, fontsize=9)
+    documento.save(destino)
+    documento.close()
+    return destino
+
+
 class TestPdfComTextoIlegivel:
-    """A prova cuja fonte foi embutida sem `ToUnicode`.
+    """PDF cuja camada de texto devolve codigo de glifo em vez de letra.
 
     O contrato nao e extrair -- e **falhar dizendo a coisa certa**. Sem isto o
     sintoma era "0 questoes extraidas", que manda procurar o defeito no
-    segmentador quando o defeito esta no arquivo.
+    segmentador quando o defeito esta no arquivo. E ele engana em ambas as
+    direcoes: tem caracteres de sobra, entao a checagem de escaneado o aprova.
     """
 
-    def test_tem_texto_mas_ele_nao_e_legivel(self):
-        documento = ler_pdf(FIXTURES / ILEGIVEL)
-        # As duas checagens sao distintas de proposito: ha caracteres de sobra
-        # (nao e um escaneado), mas eles nao sao letras.
+    def test_tem_texto_mas_ele_nao_e_legivel(self, tmp_path):
+        documento = ler_pdf(_pdf_ilegivel(tmp_path / "ilegivel.pdf"))
+        # As duas checagens sao distintas de proposito.
         assert documento.tem_camada_texto
         assert not documento.texto_legivel
 
@@ -232,8 +272,11 @@ class TestPdfComTextoIlegivel:
         db = Database(str(tmp_path / "t.db"))
         db.migrar()
         with pytest.raises(PdfComTextoIlegivel, match="ToUnicode"):
-            ServicoImportacao(db).importar(FIXTURES / ILEGIVEL, instituicao="X", ano=2025)
+            ServicoImportacao(db).importar(
+                _pdf_ilegivel(tmp_path / "ilegivel.pdf"), instituicao="X", ano=2025
+            )
 
+    @pytest.mark.skipif(not _disponiveis(), reason="PDFs reais ausentes")
     def test_provas_boas_continuam_legiveis(self):
         """A guarda nao pode reprovar o corpus que funciona."""
         for nome, *_ in _disponiveis():

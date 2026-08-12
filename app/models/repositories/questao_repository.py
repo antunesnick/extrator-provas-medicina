@@ -27,6 +27,17 @@ from app.models.entities import (
 )
 from app.utils.texto import hash_conteudo
 
+# "Nenhum tema alcanca esta questao."
+#
+# O `q.` NAO e decoracao. `questao_temas` tem uma coluna `id` propria, entao um
+# `id` sem prefixo dentro do subquery resolve para a tabela de DENTRO -- a regra
+# de escopo do SQL faz o mais interno vencer. A condicao virava
+# `qt.questao_id = qt.id`, que e verdadeira sempre que os dois contadores
+# coincidem (o caso comum num banco novo): o EXISTS dava true para tudo e o
+# filtro devolvia lista vazia. Nada estoura, nada avisa -- a tela so aparece
+# vazia, e a leitura natural e "nao ha questao sem tema".
+SEM_TEMA = "NOT EXISTS (SELECT 1 FROM questao_temas qt WHERE qt.questao_id = q.id)"
+
 
 class QuestaoRepository:
     def __init__(self, db: Database) -> None:
@@ -361,6 +372,7 @@ class QuestaoRepository:
         texto: str | None = None,
         tema_id: int | None = None,
         apenas_disponiveis: bool = False,
+        apenas_sem_tema: bool = False,
         limite: int = 200,
         deslocamento: int = 0,
     ) -> list[QuestaoResumo]:
@@ -368,6 +380,12 @@ class QuestaoRepository:
 
         `texto` usa o indice FTS5, que ignora acentos: buscar "hipertensao"
         encontra "hipertensão".
+
+        `apenas_sem_tema` e a fila de trabalho de quem vai tematizar a mao. Ela
+        precisa existir na biblioteca, e nao so na tela de revisao, porque
+        questao sem tema **nao esta errada** -- ela e invisivel para o Modo
+        Automatico, que sorteia por cota tematica. E um problema de cobertura do
+        acervo, e o lugar de olhar cobertura e onde se navega o acervo.
         """
         origem = "vw_questoes_disponiveis" if apenas_disponiveis else "vw_questoes_completas"
         condicoes: list[str] = []
@@ -384,8 +402,10 @@ class QuestaoRepository:
                         OR qt.tema_id IN (SELECT id FROM temas WHERE tema_pai_id = ?)
                 )""")
             parametros.extend([tema_id, tema_id])
+        if apenas_sem_tema:
+            condicoes.append(SEM_TEMA)
 
-        sql = f"SELECT * FROM {origem}"
+        sql = f"SELECT * FROM {origem} AS q"
         if condicoes:
             sql += " WHERE " + " AND ".join(condicoes)
         sql += " ORDER BY id LIMIT ? OFFSET ?"
@@ -410,9 +430,12 @@ class QuestaoRepository:
             return candidatos
         return random.Random(semente).sample(candidatos, quantidade)
 
-    def contar(self, apenas_disponiveis: bool = False) -> int:
+    def contar(self, apenas_disponiveis: bool = False, apenas_sem_tema: bool = False) -> int:
         origem = "vw_questoes_disponiveis" if apenas_disponiveis else "vw_questoes_completas"
-        return self.db.conn.execute(f"SELECT COUNT(*) FROM {origem}").fetchone()[0]
+        sql = f"SELECT COUNT(*) FROM {origem} AS q"
+        if apenas_sem_tema:
+            sql += f" WHERE {SEM_TEMA}"
+        return self.db.conn.execute(sql).fetchone()[0]
 
     # ------------------------------------------------------------------ interno
     def _montar(self, questao: Questao) -> Questao:

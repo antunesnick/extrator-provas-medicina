@@ -20,7 +20,7 @@ from app.models.entities import StatusGabarito, StatusProva
 from app.models.repositories.prova_original_repository import ProvaOriginalRepository
 from app.models.repositories.questao_repository import QuestaoRepository
 from app.services.extracao.importador import ServicoImportacao
-from tests.integration.test_extracao_corpus import REVISAO_ESPERADA
+from tests.integration.test_extracao_corpus import BURACOS_CONHECIDOS, REVISAO_ESPERADA
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
@@ -40,6 +40,7 @@ CORPUS = [
         99,
     ),
     ("banca1 - Copia - Copia (2)/medico_medicina_da_familia_e_comunidade.pdf", 40),
+    ("banca1 - Copia - Copia (3)/prova13.pdf", 49),
 ]
 
 
@@ -75,7 +76,11 @@ def test_prova_real_entra_inteira_no_banco(servico, db, nome, total):
     assert len(resultado.para_revisao) <= REVISAO_ESPERADA[nome]
 
     questoes = QuestaoRepository(db).listar_por_prova(resultado.prova.id)
-    assert [q.numero_original for q in questoes] == list(range(1, total + 1))
+    buracos = BURACOS_CONHECIDOS.get(nome, set())
+    ultimo = total + len(buracos)
+    assert [q.numero_original for q in questoes] == [
+        n for n in range(1, ultimo + 1) if n not in buracos
+    ]
     # Nem toda banca usa cinco alternativas -- uma das provas de medicina de
     # familia tem quatro na prova inteira. O que vale e o prefixo de ABCDE.
     assert all(q.letras == "ABCDE"[: len(q.letras)] for q in questoes)

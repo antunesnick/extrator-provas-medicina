@@ -24,9 +24,11 @@ from app.controllers.revisao_controller import RevisaoController
 from app.models.entities import StatusGabarito
 from app.models.repositories.questao_repository import QuestaoRepository
 from app.models.repositories.tema_repository import TemaRepository
+from app.services.classificacao.servico import ServicoClassificacao
 from app.services.geracao.montador_prova import Cabecalho
 from app.services.geracao.seletor_questoes import Cota
 from app.views.janela_principal import JanelaPrincipal
+from app.views.tela_biblioteca import TelaBiblioteca
 from app.views.tela_revisao import TelaRevisao
 
 pytestmark = pytest.mark.gui
@@ -187,6 +189,83 @@ class TestControllerBiblioteca:
     def test_busca_textual_sem_acento(self, qapp, banco):
         controller = BibliotecaController(banco)
         assert controller.buscar(texto="toracica")
+
+
+class TestClassificacaoManualNaBiblioteca:
+    """Tematizar à mão o que o classificador não alcançou.
+
+    Questão sem tema não aparece errada em lugar nenhum — ela simplesmente
+    **some do Modo Automático**, que sorteia por cota temática. É um problema
+    de cobertura do acervo, e por isso a fila mora na biblioteca, onde se
+    navega o acervo, e não na tela de revisão, que é para o que saiu torto.
+    """
+
+    def test_filtro_isola_as_questoes_sem_tema(self, qapp, db_com_temas, criar_questao):
+        criar_questao(enunciado="Paciente com infarto agudo do miocardio.")
+        orfa_id = criar_questao(enunciado="Assinale a alternativa correta sobre o caso.")
+        controller = BibliotecaController(db_com_temas)
+        tema = TemaRepository(db_com_temas).listar()[0]
+        TemaRepository(db_com_temas).definir_manual(controller.buscar()[0].id, tema.id)
+
+        sem_tema = controller.buscar(apenas_sem_tema=True)
+
+        assert orfa_id in [q.id for q in sem_tema]
+        assert len(sem_tema) < len(controller.buscar())
+
+    def test_aplicar_tema_tira_a_questao_da_fila(self, qapp, db_com_temas, criar_questao):
+        questao_id = criar_questao(enunciado="Assinale a alternativa correta.")
+        controller = BibliotecaController(db_com_temas)
+        tema = TemaRepository(db_com_temas).listar()[0]
+
+        assert questao_id in [q.id for q in controller.buscar(apenas_sem_tema=True)]
+        controller.aplicar_tema(questao_id, tema.id)
+
+        assert questao_id not in [q.id for q in controller.buscar(apenas_sem_tema=True)]
+
+    def test_tema_manual_sobrevive_a_reclassificacao(self, qapp, db_com_temas, criar_questao):
+        """A garantia que torna o trabalho manual justificável.
+
+        Sem ela, tematizar 200 questões à mão é trabalho que o próximo clique
+        em "Classificar" desfaz -- e desfaz em silêncio.
+        """
+        questao_id = criar_questao(enunciado="Paciente com infarto agudo do miocardio.")
+        controller = BibliotecaController(db_com_temas)
+        temas = TemaRepository(db_com_temas)
+        escolhido = next(t for t in temas.listar() if t.nome == "Pediatria")
+
+        controller.aplicar_tema(questao_id, escolhido.id)
+        ServicoClassificacao(db_com_temas).classificar_questao(
+            QuestaoRepository(db_com_temas).buscar_por_id(questao_id)
+        )
+
+        principais = [t.nome for t, _, principal in temas.temas_da_questao(questao_id) if principal]
+        assert principais == ["Pediatria"]
+
+    def test_criar_tema_novo_e_idempotente(self, qapp, db_com_temas):
+        controller = BibliotecaController(db_com_temas)
+        antes = TemaRepository(db_com_temas).contar()
+
+        primeiro = controller.criar_tema("Medicina do Trabalho")
+        repetido = controller.criar_tema("Medicina do Trabalho")
+
+        assert primeiro.id == repetido.id
+        assert TemaRepository(db_com_temas).contar() == antes + 1
+
+    def test_nome_em_branco_nao_cria_tema(self, qapp, db_com_temas):
+        controller = BibliotecaController(db_com_temas)
+        antes = TemaRepository(db_com_temas).contar()
+
+        assert controller.criar_tema("   ") is None
+        assert TemaRepository(db_com_temas).contar() == antes
+
+    def test_tela_desabilita_o_filtro_de_gabarito_na_fila(self, qapp, banco):
+        """Questão sem gabarito é a maioria logo depois de importar: escondê-la
+        da fila sem dizer faria o trabalho parecer terminado."""
+        tela = TelaBiblioteca(BibliotecaController(banco))
+
+        tela.marca_sem_tema.setChecked(True)
+
+        assert not tela.marca_disponiveis.isEnabled()
 
 
 class TestControllerGeracao:

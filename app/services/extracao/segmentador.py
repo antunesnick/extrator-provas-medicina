@@ -95,6 +95,12 @@ _LETRA = re.compile(rf"^(?P<pref>[(\[])?(?P<num>[a-eA-E])(?P<suf>{_DELIM})?\s*$"
 _LETRA_COM_TEXTO = re.compile(
     rf"^(?P<pref>[(\[])?(?P<num>[a-eA-E])(?P<suf>{_DELIM}){_COLADO_LETRA}"
 )
+# "(B foi resultado do movimento": o parentese abre e nunca fecha. Nao e estilo
+# de banca nenhuma -- e OCR, que perde o glifo de fechamento com frequencia
+# (a prova OCRizada do corpus tem "(A)" certo e "(B", "(C", "(D" truncados na
+# mesma questao). O parentese de abertura ja e sinal suficiente: nenhum texto
+# corrido comeca com "(B ". Mesma logica do prefixo "QUESTAO" para numero.
+_LETRA_PREFIXADA = re.compile(rf"^(?P<pref>[(\[])(?P<num>[a-eA-E])(?P<suf>{_DELIM})?\s*(?=\S)")
 
 # Filete de preenchimento com que algumas bancas completam a linha do marcador
 # ("QUESTAO 11 ______________________"). Sem remover, a fileira de underscores
@@ -182,7 +188,9 @@ class Marcador:
     forte: bool
 
 
-def _ler_marcador(linha: Linha, padrao_isolado, *padroes_com_texto) -> Marcador | None:
+def _ler_marcador(
+    linha: Linha, padrao_isolado, *padroes_com_texto, normalizar=None
+) -> Marcador | None:
     """Devolve o `Marcador` se a linha comeca com um.
 
     Cobre os dois jeitos que o PDF pode entregar a mesma coisa: o marcador como
@@ -198,6 +206,8 @@ def _ler_marcador(linha: Linha, padrao_isolado, *padroes_com_texto) -> Marcador 
         return None
 
     primeiro = limpar(linha.fragmentos[0].texto)
+    if normalizar is not None:
+        primeiro = normalizar(primeiro)
 
     m = padrao_isolado.match(primeiro)
     if m:
@@ -225,11 +235,31 @@ def _sem_filete(texto: str) -> str:
 
 
 def _ler_numero(linha: Linha) -> Marcador | None:
-    return _ler_marcador(linha, _NUMERO, _NUMERO_COM_TEXTO, _NUMERO_PREFIXADO)
+    return _ler_marcador(
+        linha, _NUMERO, _NUMERO_COM_TEXTO, _NUMERO_PREFIXADO, normalizar=_zero_de_ocr
+    )
+
+
+def _zero_de_ocr(texto: str) -> str:
+    """``"o1."`` -> ``"01."``. Conserta o zero que o OCR leu como letra.
+
+    Prova OCRizada e um tipo novo de arquivo no corpus, e este e o erro mais
+    caro dele: acontece no **primeiro** marcador da prova (``01.``), onde o zero
+    a esquerda e mais comum. Perder o primeiro marcador nao custa uma questao --
+    custa a ancora, e a cadeia de numeracao passa a comecar na 2.
+
+    Deliberadamente estreito. So um `o`/`O` **isolado no inicio** e **colado a
+    um digito** vira zero; nao ha tentativa de consertar `l`->`1`, `S`->`5` ou
+    qualquer outra confusao de OCR. O motivo e assimetria de risco: aqui o
+    contexto e restrito (o candidato ja esta na sarjeta aprendida e ainda vai
+    passar pela checagem de sequencia), enquanto uma tabela de confusoes ampla
+    transformaria em marcador qualquer palavra que comece por letra e numero.
+    """
+    return f"0{texto[1:]}" if len(texto) > 1 and texto[0] in "oO" and texto[1].isdigit() else texto
 
 
 def _ler_letra(linha: Linha) -> Marcador | None:
-    marcador = _ler_marcador(linha, _LETRA, _LETRA_COM_TEXTO)
+    marcador = _ler_marcador(linha, _LETRA, _LETRA_COM_TEXTO, _LETRA_PREFIXADA)
     if marcador is None:
         return None
     return Marcador(marcador.valor.upper(), marcador.resto, marcador.forte)
