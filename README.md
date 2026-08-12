@@ -8,8 +8,9 @@ provas customizadas (caderno + folha de gabarito) a partir do banco acumulado.
 PDF → extração → banco → gabarito → classificação temática → montagem →
 caderno e folha de gabarito em PDF, com interface PyQt6 em quatro abas. Um LLM
 local (Ollama) identifica o tema e **sugere o gabarito**, sempre sujeito a
-confirmação humana antes de imprimir. 333 testes automatizados, validados
-contra 3 provas reais (230 questões) e contra os gabaritos oficiais das três.
+confirmação humana antes de imprimir. 405 testes automatizados, validados
+contra **8 provas reais de 7 bancas** (604 questões) e contra os gabaritos
+oficiais de três delas.
 
 ---
 
@@ -23,11 +24,11 @@ extrator-provas/
 ├── main.py                          # ponto de entrada: sobe QApplication e injeta dependências
 ├── pyproject.toml                   # config de pytest, ruff, black, mypy, coverage
 ├── requirements.txt                 # runtime (GUI, PDF, utilidades)
-├── requirements-ml.txt              # ML pesado (torch/transformers/spacy) — opcional
+├── requirements-ml.txt              # zero-shot opcional (torch/transformers)
 ├── requirements-dev.txt             # testes e qualidade
 │
 ├── .github/workflows/
-│   └── python-app.yml               # CI: lint → testes (matriz) → testes de ML
+│   └── python-app.yml               # CI: lint → testes (matriz de SO/Python)
 │
 ├── app/
 │   ├── config.py                    # caminhos, limiares, nomes de modelo
@@ -286,13 +287,41 @@ número absoluto não serviria — prova de quatro alternativas é legítima.
 
 ### Resultado no corpus
 
-| Prova | Páginas | Layout | Questões | Confiança | Para revisão |
+| Prova | Páginas | Layout | Alt. | Questões | Para revisão |
 |---|---|---|---|---|---|
-| SBMFC_PRONTA | 17 | 1 coluna | 70/70 | 1.000 | 0 |
-| TEMFC-18 | 20 | 2 colunas | 80/80 | 1.000 | 0 |
-| TEMFC-19 | 20 | 2 colunas | 80/80 | 1.000 | 0 |
+| SBMFC_PRONTA | 17 | 1 coluna | 5 | 70/70 | 0 |
+| TEMFC-18 | 20 | 2 colunas | 5 | 80/80 | 0 |
+| TEMFC-19 | 20 | 2 colunas | 5 | 80/80 | 0 |
+| acesso_direto_MFC | 24 | 2 colunas | 5 | 100/100 | 1 |
+| banca1/acesso_direto | 20 | 2 colunas | **4** | 100/100 | 1 |
+| medicina_em_saude_familia | 12 | 1 coluna | 5 | 35/35 | 0 |
+| especialidades_acesso_direto | 24 | 2 colunas | 5 | 99/99 | 1 |
+| medico_MFC | 12 | 1 coluna | 5 | 40/40 | 0 |
 
-230 questões, todas com as cinco alternativas, sem buracos na numeração.
+**604 questões de 7 bancas**, sem buraco na numeração; 3 marcadas para revisão,
+e as três estão certas em estar marcadas (uma perdeu as alternativas no próprio
+PDF, uma tem três onde a prova usa quatro, uma tem alternativa vazia).
+
+Uma nona prova fica de fora de propósito: `prova13.pdf` tem camada de texto, mas
+a fonte foi embutida **sem tabela `ToUnicode`** e o que sai são códigos de glifo
+(`'\x19\x1a\x1b\x1c\x1d !"#$"%'`), 56% de caracteres legíveis contra 99,9% das
+boas. Ela passava na checagem de "escaneado" — tem caracteres de sobra — e o
+sintoma virava *0 questões extraídas*, que manda procurar o defeito no
+segmentador. Hoje levanta `PdfComTextoIlegivel` dizendo o que fazer.
+
+### O que as outras bancas quebraram
+
+As três primeiras provas compartilham a diagramação, e isso escondia quatro
+suposições. Quando chegaram provas de medicina de família de outras bancas,
+**três delas extraíram zero questões** e uma extraiu 40 questões sem uma única
+alternativa:
+
+| Suposição escondida | Como apareceu | Correção |
+|---|---|---|
+| Existe espaço depois do delimitador | `6)Homem de 40 anos` e `A)A Atenção` vêm como **um** fragmento; zero questões numa prova, zero alternativas em outra | Espaço opcional. Sem espaço, o resto tem de começar por letra — senão `12.5 mg/dL` viraria marcador da questão 12. Para **letra** a ressalva não vale (`a)2 - 5 - 1` é alternativa de questão de associação) e aplicá-la apagava essas questões inteiras |
+| Todo marcador tem delimitador | `QUESTÃO11 ______` não tem nenhum | Com o prefixo por extenso, o delimitador vira opcional; o filete de underscores é removido para não abrir o enunciado |
+| Ruído repetido é sempre layout | A máscara de dígitos junta `Página # de #` — e junta também `QUESTÃO # ____`. O detector apagava a abertura de **22 das 100 questões**; o teto de 25% foi o único motivo de não ter apagado todas | Marcador **forte** é conteúdo por definição. Fraco não: senão o rodapé numerado volta a escapar |
+| Linha pertence a uma coluna | Questão 51 terminava em x=561,2 (centro 297,6 → coluna 0) e a 52 em x=563,8 (centro 298,9 → coluna 1). **Um ponto e meio decidia a coluna**, e a sarjeta é aprendida por coluna: as questões 52 a 55 eram descartadas | Fragmento que ocupa fatia relevante de duas colunas não pertence a nenhuma — vale onde ele começa |
 
 Um trecho que se repita literalmente na mesma altura em muitas páginas será
 tratado como layout e descartado — é um dos motivos de a tela de revisão
@@ -470,7 +499,7 @@ muda:
 | Backend | Custo | O que faz |
 |---|---|---|
 | `cascata` (padrão) | ~1 s + o modelo só no que sobrou | léxico decide; LLM entra nas exceções |
-| `heuristico` | zero — responde na hora, sem rede | léxico com pesos IDF; 95% de cobertura |
+| `heuristico` | zero — responde na hora, sem rede | léxico com pesos IDF; 98,8% de cobertura |
 | `llm_local` | ~7 s **por questão** | tudo pelo modelo; serve para comparar |
 | `zero_shot` | ~1,5 GB de transformers | alternativa sem instalar servidor |
 
@@ -507,15 +536,30 @@ O léxico não é uma lista de palavras solta. Duas ideias o fazem render:
 - **casamento por prefixo**: `hipertens` alcança hipertensão, hipertensivo e
   hipertensiva, sem carregar um lematizador.
 
-### O tema que faltava, e o limite do IDF caseiro
+### Faltavam temas, não termos
 
 A taxonomia tinha "Saúde Coletiva e SUS" — a política que **organiza** a atenção
 primária — mas não a especialidade que a **pratica**, que é justamente o assunto
 das provas de título do corpus. Questão sobre genograma, método clínico centrado
 na pessoa ou CIAP não tinha casa: ela se espalhava entre Saúde Coletiva, Ética e
 o órgão que a queixa por acaso citou. **Medicina de Família e Comunidade** entrou
-na taxonomia e no léxico, e 16 questões passaram a ter o tema certo; as órfãs
-caíram de 5 para 3.
+na taxonomia e no léxico.
+
+Com o corpus em 604 questões, as 22 que o léxico não nomeava foram lidas uma a
+uma — e o padrão se repetiu: **idoso, olho e ouvido** apareciam de novo e de novo
+sem ter para onde ir. Não faltava termo, faltava tema. São três motivos de
+consulta corriqueiros da atenção primária que uma taxonomia montada por grande
+área de residência simplesmente não prevê. **Geriatria**, **Oftalmologia** e
+**Otorrinolaringologia** entraram, junto com o vocabulário que as demais órfãs
+revelaram: IST e abordagem sindrômica, tabagismo, modelos de sistema de saúde
+(Beveridge, Bismarck), demografia, ritmos de parada, embriologia.
+
+**Órfãs: 22 → 7 em 604 questões (98,8% nomeadas).**
+
+A lição que vale além deste corpus: quando muitas questões ficam sem tema, a
+primeira suspeita deve ser a **taxonomia**, não a tabela de termos. Termo que
+falta produz uma órfã isolada; tema que falta produz um grupo de órfãs que falam
+todas do mesmo assunto.
 
 Montar essa lista expôs o limite do IDF caseiro. A primeira versão incluía
 `mfc`, `medico de familia` e `atencao primaria` — e o score médio **caiu** de
@@ -546,18 +590,34 @@ resposta: as quatro erradas já apontam para o mesmo tema, então não há empat
 para desfazer. A medição está registrada no docstring de
 `texto_para_classificar` para ninguém tentar de novo.
 
-### O score é uma fatia, não uma confiança
+### Fatia e margem: dois jeitos de medir confiança
 
-Vale saber ao ler o número: o score do léxico é a **proporção da evidência** que
-o tema vencedor levou, não uma probabilidade. Uma vinheta longa que legitimamente
-toca quatro especialidades tira ~0,30 no tema certo, e cai abaixo do limiar sem
-estar errada — "Ivo, 5 anos, sintomas respiratórios → Pneumologia 0,29" é acerto.
-A consequência prática é que hoje a cascata manda ao LLM várias questões que o
-léxico já tinha acertado. Trocar o critério de *fatia* para *margem* (1º contra
-2º lugar) tende a cortar mais chamadas ao modelo do que qualquer termo novo — é
-a melhoria de maior retorno pendente neste módulo.
+O score do léxico é a **proporção da evidência** que o tema vencedor levou, não
+uma probabilidade. Isso tem uma consequência que passou meses despercebida: a
+fatia **pune o comprimento**. Uma vinheta clínica longa cita rim, coração e humor
+de passagem, e o tema certo ganha com 0,30 — abaixo do limiar sem ter nada de
+errado. "Ivo, 5 anos, sintomas respiratórios → Pneumologia 0,29" é acerto, e ia
+para o LLM a ~7 s.
 
-**Resultado no corpus:** 218 das 230 questões nomeadas (95%), com distribuição
+A cascata passou a aceitar também a decisão folgada por **margem**: vencedor com
+o dobro da evidência do segundo. A margem ignora a cauda longa, que é justamente
+o que o comprimento infla — "Hematologia 0,43 contra Cardiologia 0,11" é decisão
+tranquila que a fatia reprovava.
+
+A razão de 2,0 foi calibrada na curva, não escolhida:
+
+| Razão | Chamadas ao modelo dispensadas |
+|---|---|
+| 1,5 | 79 — mas "50% mais que o segundo" é afirmação fraca demais para pular conferência |
+| **2,0** | **42** |
+| 2,5 | 9 |
+| 3,0 | 6 |
+
+O ganho colapsa depois de 2,0 porque as margens reais se concentram entre 2 e
+2,5. Resultado no corpus: **230 → 177 chamadas ao modelo**, seis minutos a menos
+por acervo desse tamanho, sem trocar o modelo nem afrouxar a conferência.
+
+**Resultado no corpus:** 597 das 604 questões nomeadas (98,8%), com distribuição
 coerente com provas de medicina de família — Saúde Coletiva/SUS, Infectologia e
 Cardiologia no topo. Um teste de integração trava o piso em 80%: ele não fixa o
 número, fixa a regressão.
@@ -797,7 +857,7 @@ explicação do que falta, e todo o resto continua funcionando.
 ### Testes
 
 ```bash
-pytest                        # 333 testes, ~80 s
+pytest                        # 405 testes, ~95 s
 pytest -m "not gui"           # sem os testes de interface
 pytest --cov=app --cov-report=html
 ```
@@ -808,7 +868,7 @@ Recriar o banco do zero: `python scripts/init_db.py --reset --seed`.
 
 ## 10. CI
 
-`.github/workflows/python-app.yml`, em três estágios:
+`.github/workflows/python-app.yml`, em dois estágios:
 
 1. **lint** — ruff + black + mypy. Falha em segundos, antes de gastar minutos.
 2. **testes** — matriz Ubuntu/Windows × Python 3.11/3.12. Instala as libs de Qt
@@ -816,9 +876,20 @@ Recriar o banco do zero: `python scripts/init_db.py --reset --seed`.
    **sobe o app com `--sem-gui`** (pega erro de import que a suíte não pegaria,
    porque ela nunca passa pelo ponto de entrada real) e roda o pytest com
    cobertura.
-3. **testes-ml** — só em `main` ou disparo manual. Baixar torch + modelos em todo
-   PR tornaria o CI inútil por lentidão; nos testes normais o classificador é
-   substituído por um dublê.
+
+Havia um terceiro estágio, `testes-ml`, e ele foi removido na primeira vez que
+chegou a rodar de verdade — só disparava em `main`, e o repositório não teve
+`main` até o primeiro push. O log mostrou o que ele era: instalava torch e
+transformers (~2 min), baixava um modelo do **spaCy que não é dependência do
+projeto** e falhava ali; e, se tivesse passado, `pytest -m ml` coleta zero
+testes, porque nenhum teste usa esse marcador. O marcador continua declarado no
+`pyproject`; o estágio volta junto com o primeiro teste que lhe dê motivo.
+
+**Dois testes de corpus só rodam localmente.** As oito provas reais estão no
+`.gitignore` (material de terceiros, repositório público), então no CI os
+módulos de `tests/integration/` que dependem delas se marcam como *skipped* — é
+o `skipif(not _disponiveis())`. A suíte continua verde e o corpus continua sendo
+a rede de segurança de quem mexe no extrator, na máquina de quem mexe.
 
 `QT_QPA_PLATFORM=offscreen` permite testar widgets PyQt6 sem servidor gráfico —
 o `conftest.py` também o define, para que `pytest` sozinho funcione em qualquer
@@ -844,17 +915,14 @@ O que **não** funciona hoje:
 3. **`texto_apoio` e `comando` não são separados do enunciado.** Distinguir os
    três com confiança pede análise semântica; hoje o enunciado sai inteiro,
    correto mas não segmentado.
-4. **O corpus é de uma banca só.** As três provas são SBMFC/TEMFC e compartilham
-   a diagramação. As heurísticas foram desenhadas para não depender disso
-   (sarjeta e layout são aprendidos de cada arquivo), mas isso ainda não foi
-   comprovado contra uma formatação genuinamente diferente — é o teste mais
-   valioso que falta.
-5. **O léxico do classificador é generalista.** ~98% de cobertura no corpus, mas
-   ele é uma tabela editável, não um modelo: temas muito específicos pedem
+4. **PDF com fonte sem `ToUnicode`** é detectado e recusado com a mensagem
+   certa, mas não é processado — mesma dependência de OCR do item 1.
+5. **O léxico do classificador é generalista.** 98,8% de cobertura no corpus,
+   mas ele é uma tabela editável, não um modelo: temas muito específicos pedem
    termos novos em `heuristico.py` ou uma passada com o LLM local (que a
-   cascata já faz sozinha nas questões órfãs). O limiar ainda usa *fatia* em vez
-   de *margem*, então ele manda ao LLM questões que o léxico já acertou — ver a
-   seção 6.
+   cascata já faz sozinha nas questões órfãs). A taxonomia tem o mesmo caráter —
+   ela cresceu quatro temas por medição, e vai crescer de novo quando o acervo
+   trouxer assunto que ela ainda não prevê.
 6. **O gabarito sugerido pelo modelo acerta 55%.** Medido, não estimado — ver a
    seção 6. Serve como sugestão a conferir, nunca como gabarito. Melhorar isso
    depende de um modelo maior (7B+), que não cabe confortavelmente em 14 GB de
