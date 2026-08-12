@@ -45,6 +45,17 @@ TEMAS_SEED: list[tuple[str, str | None, str]] = [
     ("Urologia", "Cirurgia", "doenças do trato urinário e do sistema reprodutor masculino"),
     ("Ortopedia", "Cirurgia", "fraturas, doenças ósseas e do aparelho locomotor"),
     ("Anestesiologia", "Cirurgia", "anestesia, sedação e manejo perioperatório"),
+    # Idoso, olho e ouvido: motivos de consulta corriqueiros na atenção
+    # primária que a taxonomia por grande área da residência não previa. Foram
+    # acrescentados depois de ler as 22 questões do corpus que ficavam sem tema
+    # nenhum — a falta era de tema, não de termo no léxico.
+    ("Geriatria", "Clínica Médica", "saúde do idoso, fragilidade e quedas"),
+    ("Oftalmologia", "Clínica Médica", "doenças dos olhos e acuidade visual"),
+    (
+        "Otorrinolaringologia",
+        "Clínica Médica",
+        "doenças do ouvido, nariz e garganta",
+    ),
     ("Pediatria", None, "saúde da criança e do adolescente"),
     ("Neonatologia", "Pediatria", "cuidados com o recém-nascido e prematuridade"),
     ("Ginecologia e Obstetrícia", None, "saúde da mulher, gestação e parto"),

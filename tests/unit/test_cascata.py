@@ -34,6 +34,25 @@ class _Espiao:
         return [Sugestao(alvo.id, alvo.nome, 0.9)]
 
 
+class _Fixo:
+    """Dublê da camada rápida com scores cravados.
+
+    O critério de margem depende da *relação* entre o 1º e o 2º colocado, e
+    montar um texto que produza exatamente 0,30 contra 0,10 no léxico real
+    seria escrever um teste sobre a tabela de termos, não sobre a cascata --
+    e ele quebraria no dia em que alguém acrescentasse uma palavra.
+    """
+
+    nome = "fixo"
+
+    def __init__(self, pares: list[tuple[str, float]]) -> None:
+        self.pares = pares
+
+    def classificar(self, texto: str, temas: list[Tema]) -> list[Sugestao]:
+        por_nome = {t.nome: t for t in temas}
+        return [Sugestao(por_nome[n].id, n, s) for n, s in self.pares if n in por_nome]
+
+
 @pytest.fixture()
 def temas(db_com_temas) -> list[Tema]:
     return TemaRepository(db_com_temas).listar()
@@ -77,6 +96,64 @@ class TestCascata:
 
         assert len(espiao.chamadas) == 1
         assert cascata.contadores.detalhe == {"evidencia fraca": 1}
+
+    def test_margem_folgada_dispensa_o_modelo_mesmo_com_fatia_baixa(self, temas):
+        """Fatia baixa nao e sinal de duvida quando o vice ficou muito atras.
+
+        O score do lexico e a *fatia* da evidencia total, entao ele encolhe com
+        o comprimento da questao: uma vinheta clinica longa cita rim, coracao e
+        humor de passagem e o tema certo ganha com 0,30. Julgar so pela fatia
+        mandava ao LLM 42 questoes do corpus que o lexico ja tinha decidido com
+        folga -- a ~7 s cada.
+        """
+        espiao = _Espiao()
+        cascata = ClassificadorCascata(
+            reserva=espiao, rapido=_Fixo([("Hematologia", 0.30), ("Cardiologia", 0.10)])
+        )
+
+        sugestoes = cascata.classificar("qualquer", temas)
+
+        assert espiao.chamadas == []
+        assert sugestoes[0].nome == "Hematologia"
+        assert cascata.contadores.pelo_lexico == 1
+
+    def test_disputa_apertada_com_fatia_baixa_ainda_chama_o_modelo(self, temas):
+        """O criterio novo AMPLIA o que o lexico decide; nao pode engolir a duvida."""
+        espiao = _Espiao()
+        cascata = ClassificadorCascata(
+            reserva=espiao, rapido=_Fixo([("Nefrologia", 0.30), ("Urologia", 0.28)])
+        )
+
+        cascata.classificar("qualquer", temas)
+
+        assert len(espiao.chamadas) == 1
+        assert cascata.contadores.detalhe == {"evidencia fraca": 1}
+
+    def test_tema_unico_decide_sozinho(self, temas):
+        """Sem vice nao ha o que comparar, e pagar o modelo para escolher entre
+        uma opcao e uma so nao faz sentido."""
+        espiao = _Espiao()
+        cascata = ClassificadorCascata(reserva=espiao, rapido=_Fixo([("Ortopedia", 0.20)]))
+
+        sugestoes = cascata.classificar("qualquer", temas)
+
+        assert espiao.chamadas == []
+        assert sugestoes[0].nome == "Ortopedia"
+
+    def test_razao_da_margem_e_configuravel(self, temas):
+        """Mesma entrada, exigencia diferente: 3x reprova o que 2x aprovava."""
+        entrada = _Fixo([("Hematologia", 0.30), ("Cardiologia", 0.12)])
+
+        frouxa = ClassificadorCascata(reserva=_Espiao(), rapido=entrada, razao_margem=2.0)
+        estrita = ClassificadorCascata(
+            reserva=(caro := _Espiao()), rapido=entrada, razao_margem=3.0
+        )
+
+        frouxa.classificar("qualquer", temas)
+        estrita.classificar("qualquer", temas)
+
+        assert frouxa.contadores.pelo_lexico == 1
+        assert len(caro.chamadas) == 1
 
     def test_modelo_mudo_preserva_o_palpite_do_lexico(self, temas):
         """Questão sem tema nenhum some do Modo Automático — pior que tema fraco."""

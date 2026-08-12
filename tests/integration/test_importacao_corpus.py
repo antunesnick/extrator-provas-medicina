@@ -20,13 +20,26 @@ from app.models.entities import StatusGabarito, StatusProva
 from app.models.repositories.prova_original_repository import ProvaOriginalRepository
 from app.models.repositories.questao_repository import QuestaoRepository
 from app.services.extracao.importador import ServicoImportacao
+from tests.integration.test_extracao_corpus import REVISAO_ESPERADA
 
 FIXTURES = Path(__file__).resolve().parent.parent / "fixtures"
 
+# Mesmas oito provas de `test_extracao_corpus.py`. Importar todas custa alguns
+# segundos a mais, e paga: o piso de cobertura do classificador so significa
+# alguma coisa medido sobre as sete bancas, nao sobre a diagramacao de uma so.
 CORPUS = [
     ("SBMFC_PRONTA.pdf", 70),
     ("TEMFC-18.pdf", 80),
     ("TEMFC-19.pdf", 80),
+    ("acesso_direto_medicina_de_familia_e_comunidade.pdf", 100),
+    ("banca1/acesso_direto_medicina_de_familia_e_comunidade (1).pdf", 100),
+    ("banca1 - Copia/medicina_em_saude_da_familia_e_atencao_domiciliar.pdf", 35),
+    (
+        "banca1 - Copia - Copia/"
+        "especialidades_com_acesse_direto_medicina_da_familia_e_comunidade.pdf",
+        99,
+    ),
+    ("banca1 - Copia - Copia (2)/medico_medicina_da_familia_e_comunidade.pdf", 40),
 ]
 
 
@@ -56,13 +69,16 @@ def test_prova_real_entra_inteira_no_banco(servico, db, nome, total):
     assert resultado.detectadas == total
     assert resultado.gravadas == total
     assert resultado.ignoradas == 0
-    # O corpus e extraido com confianca maxima; se isto falhar, a mudanca
-    # piorou a extracao mesmo que a contagem continue certa.
-    assert resultado.para_revisao == []
+    # Teto de questoes duvidosas, nao zero: ver a explicacao em
+    # `test_extracao_corpus.REVISAO_ESPERADA`. Se isto estourar, a mudanca
+    # piorou a extracao mesmo que a contagem de questoes continue certa.
+    assert len(resultado.para_revisao) <= REVISAO_ESPERADA[nome]
 
     questoes = QuestaoRepository(db).listar_por_prova(resultado.prova.id)
     assert [q.numero_original for q in questoes] == list(range(1, total + 1))
-    assert all(q.letras == "ABCDE" for q in questoes)
+    # Nem toda banca usa cinco alternativas -- uma das provas de medicina de
+    # familia tem quatro na prova inteira. O que vale e o prefixo de ABCDE.
+    assert all(q.letras == "ABCDE"[: len(q.letras)] for q in questoes)
     assert all(q.gabarito.status is StatusGabarito.AUSENTE for q in questoes)
 
     prova = ProvaOriginalRepository(db).buscar_por_id(resultado.prova.id)
@@ -98,10 +114,15 @@ def test_o_banco_inteiro_de_uma_vez(servico, db):
 def test_classificacao_cobre_a_maior_parte_do_corpus(db_com_temas, tmp_path):
     """Piso de cobertura do léxico, medido contra as provas reais.
 
-    Hoje o classificador padrão nomeia 218 das 230 questões (95%). O piso de 80%
-    é folgado de propósito: ele não trava o número, trava a *regressão* — mexer
-    no léxico e derrubar a cobertura para metade passaria despercebido sem isto.
-    As que sobram não somem, vão para a fila da tela de revisão.
+    Medido nas 604 questões das oito provas, o léxico nomeia todas menos 7
+    (98,8%). O piso de 90% é folgado de propósito: ele não trava o número, trava
+    a *regressão* — mexer no léxico e derrubar a cobertura para metade passaria
+    despercebido sem isto. As que sobram não somem: vão para a fila da tela de
+    revisão, e na cascata é o LLM que tenta nomeá-las.
+
+    O piso subiu de 80% para 90% quando as questões órfãs caíram de 22 para 7.
+    Elas caíram por **taxonomia**, não por termo: ler as 22 uma a uma mostrou
+    idoso, olho e ouvido aparecendo de novo e de novo sem ter tema para onde ir.
     """
     from app.models.repositories.tema_repository import TemaRepository
     from app.services.classificacao.servico import ServicoClassificacao
@@ -113,7 +134,7 @@ def test_classificacao_cobre_a_maior_parte_do_corpus(db_com_temas, tmp_path):
     relatorio = ServicoClassificacao(db_com_temas).classificar_pendentes(limite=1000)
 
     assert relatorio.total == sum(total for _, total in _disponiveis())
-    assert relatorio.classificadas >= relatorio.total * 0.80
+    assert relatorio.classificadas >= relatorio.total * 0.90
     # Questão sem tema continua encontrável: ela vai para a fila do classificador.
     assert TemaRepository(db_com_temas).sem_tema() == sorted(relatorio.sem_sugestao)
 

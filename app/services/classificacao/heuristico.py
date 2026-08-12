@@ -88,6 +88,11 @@ LEXICO: dict[str, tuple[str, ...]] = {
         "dengue", "zika", "chikungunya", "malaria", "leishmani", "hansenia",
         "hepatite viral", "vacina", "sepse", "febre", "parasit", "verminose",
         "covid", "influenza", "leptospirose", "toxoplasmose", "amoxicilina",
+        # IST: o corpus tem varias questoes de abordagem sindromica que nao
+        # citam nenhuma das palavras acima.
+        "cancro", "vdrl", "treponem", "uretrit", "condiloma", "gonorreia",
+        "gonococ", "clamidia", "herpes genital", "sindromic",
+        "infeccao sexualmente transmissivel",
     ),
     "hematologia": (
         "anemi", "hemoglobina", "ferritina", "leucemi", "linfoma", "plaquet",
@@ -162,6 +167,8 @@ LEXICO: dict[str, tuple[str, ...]] = {
         "valor preditivo", "coorte", "caso-controle", "ensaio clinico", "risco relativo",
         "odds ratio", "intervalo de confianca", "vies", "randomiz", "amostra",
         "mortalidade", "letalidade", "curva roc", "numero necessario",
+        "likelihood ratio", "razao de verossimilhanca", "fecundidade", "demografi",
+        "natalidade", "expectativa de vida", "piramide etaria", "coeficiente",
     ),
     "saude-coletiva-e-sus": (
         "sus", "sistema unico", "atencao primaria", "atencao basica",
@@ -171,17 +178,23 @@ LEXICO: dict[str, tuple[str, ...]] = {
         "conselho de saude", "referencia e contrarreferencia", "visita domiciliar",
         "determinantes sociais", "equipe multiprofissional", "vinculo",
         "longitudinalidade", "coordenacao do cuidado", "nasf", "unidade basica",
+        # Legislacao e financiamento do SUS, e os modelos de sistema de saude
+        # que as provas cobram pelo nome dos autores.
+        "educacao permanente", "lei organica", "conselho municipal",
+        "plano municipal", "pacto pela saude", "financiamento", "tripartite",
+        "beveridge", "bismarck",
     ),
     "psiquiatria": (
         "psiquiatr", "depress", "ansiedade", "transtorno", "suicid", "psicose",
         "esquizofrenia", "bipolar", "panico", "antidepressiv", "benzodiazepin",
         "alcool", "etilis", "dependencia quimica", "droga", "caps", "insonia",
-        "saude mental",
+        "saude mental", "agitacao psicomotora", "contencao", "surto",
     ),
     "medicina-de-urgencia": (
         "urgencia", "emergencia", "parada cardiorrespiratoria", "reanimacao",
         "ressuscitacao", "choque", "samu", "desfibril", "adrenalina", "triagem",
         "instabilidade hemodinamica", "suporte avancado", "via aerea", "febre",
+        "chocavel", "assistolia", "atividade eletrica sem pulso", "cardiovers",
     ),
     "etica-e-legislacao-medica": (
         "etic", "codigo de etica", "sigilo", "consentimento", "conselho regional",
@@ -210,6 +223,32 @@ LEXICO: dict[str, tuple[str, ...]] = {
         "cessacao do tabagismo", "entrevista motivacional", "multimorbidade",
         "polifarmacia", "cuidado longitudinal", "atributos da atencao primaria",
         "lista de problemas", "registro orientado por problemas",
+        # Tabagismo e assunto de consultorio de MFC, e o corpus cobra a
+        # abordagem inteira: carga, aconselhamento e farmacoterapia.
+        "tabagis", "parar de fumar", "carga tabagica", "maco-ano", "macos-ano",
+        "bupropiona", "vareniclina", "nicotina", "aconselhamento",
+    ),
+    # --- tres temas acrescentados por medicao, nao por intuicao -------------
+    # As 22 questoes que o lexico nao nomeava foram lidas uma a uma. Tres
+    # assuntos apareciam repetidamente sem ter para onde ir -- e nao por falta
+    # de termo, e sim por falta de *tema*: idoso, olho e ouvido. Sao os tres
+    # motivos de consulta mais comuns da atencao primaria que a taxonomia de
+    # residencia (montada por grande area) simplesmente nao previa.
+    "geriatria": (
+        "idoso", "geriatr", "envelhecimento", "fragilidade", "sarcopenia",
+        "avaliacao geriatrica", "incapacidade funcional", "quedas",
+        "cuidador", "institucionalizacao", "atividades de vida diaria",
+        "declinio cognitivo", "iatrogenia",
+    ),
+    "oftalmologia": (
+        "oftalmolog", "acuidade visual", "snellen", "ocular", "catarata",
+        "glaucoma", "conjuntivit", "retinopatia", "cornea", "fundo de olho",
+        "olho vermelho", "ambliopia", "estrabismo", "refracao",
+    ),
+    "otorrinolaringologia": (
+        "otorrino", "otoscopia", "hipoacusia", "surdez", "audicao",
+        "cerume", "rinite", "sinusite", "faringite", "amigdal", "epistaxe",
+        "zumbido", "otalgia", "rouquidao", "otite media",
     ),
 }
 # fmt: on

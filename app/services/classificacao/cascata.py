@@ -32,6 +32,10 @@ from app.services.classificacao.heuristico import ClassificadorHeuristico
 
 logger = logging.getLogger(__name__)
 
+# Quantas vezes o tema vencedor precisa bater o segundo colocado para a decisao
+# ser considerada folgada, mesmo com fatia baixa. Ver `_lexico_decidiu`.
+RAZAO_MARGEM = 2.0
+
 
 @dataclass
 class Contadores:
@@ -59,16 +63,18 @@ class ClassificadorCascata:
         reserva: Classificador,
         rapido: Classificador | None = None,
         limiar: float = LIMIAR_CONFIANCA_TEMA,
+        razao_margem: float = RAZAO_MARGEM,
     ) -> None:
         self.rapido = rapido or ClassificadorHeuristico()
         self.reserva = reserva
         self.limiar = limiar
+        self.razao_margem = razao_margem
         self.contadores = Contadores()
 
     def classificar(self, texto: str, temas: list[Tema]) -> list[Sugestao]:
         sugestoes = self.rapido.classificar(texto, temas)
 
-        if sugestoes and sugestoes[0].score >= self.limiar:
+        if self._lexico_decidiu(sugestoes):
             self.contadores.pelo_lexico += 1
             return sugestoes
 
@@ -90,3 +96,39 @@ class ClassificadorCascata:
 
         self.contadores.sem_resposta += 1
         return []
+
+    def _lexico_decidiu(self, sugestoes: list[Sugestao]) -> bool:
+        """A primeira camada resolveu, ou vale pagar o modelo?
+
+        Dois criterios, e o segundo existe porque o primeiro sozinho manda ao
+        LLM um monte de questao que o lexico ja tinha acertado.
+
+        **Fatia** (`score >= limiar`): quanto o tema vencedor levou da evidencia
+        total. Mede dominancia sobre *todos* os temas de uma vez -- e por isso
+        pune o comprimento. Uma vinheta clinica longa cita rim, coracao e humor
+        de passagem; o tema certo ganha com 0,33 e cai abaixo do limiar sem ter
+        nada de errado. Foi assim que "Ivo, 5 anos, sintomas respiratorios"
+        (Pneumologia, 0,29) virou candidato a chamada de LLM.
+
+        **Margem** (`1o >= 2o * razao`): quanto o vencedor bate o vice. Ignora a
+        cauda longa, que e justamente o que o comprimento infla. "Hematologia
+        0,43 contra Cardiologia 0,11" e uma decisao folgada que a fatia
+        reprovava.
+
+        Medido nas 604 questoes do corpus, a margem em 2,0 dispensa **39
+        chamadas** ao modelo que a fatia faria -- a ~7 s cada, quatro minutos e
+        meio por acervo desse tamanho. A razao foi calibrada na curva: 1,5
+        dispensaria 79, mas "50% mais evidencia que o segundo" e uma afirmacao
+        fraca demais para pular a conferencia; de 2,5 em diante o ganho colapsa
+        para 9, porque as margens reais se concentram entre 2 e 2,5.
+
+        Tema unico com evidencia tambem decide: nao ha vice para comparar, e
+        pagar o modelo para escolher entre uma opcao e uma so nao faz sentido.
+        """
+        if not sugestoes:
+            return False
+        if sugestoes[0].score >= self.limiar:
+            return True
+        if len(sugestoes) == 1:
+            return True
+        return sugestoes[0].score >= sugestoes[1].score * self.razao_margem
