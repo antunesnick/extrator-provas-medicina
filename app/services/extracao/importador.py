@@ -88,6 +88,21 @@ class PdfSemCamadaDeTexto(FalhaImportacao):
     """
 
 
+class PdfComTextoIlegivel(FalhaImportacao):
+    """O PDF tem camada de texto, mas ela devolve codigo de glifo, nao letra.
+
+    E um terceiro estado, entre o PDF bom e o escaneado, e ele engana: a prova
+    *parece* ter texto -- ha caracteres de sobra -- mas a fonte foi embutida sem
+    tabela `ToUnicode`, entao o que sai e o indice interno de cada glifo. Uma
+    prova do corpus (baixada com marca d'agua de agregador) cai exatamente aqui.
+
+    Merece excecao separada de `PdfSemCamadaDeTexto` porque a causa que o
+    usuario consegue tratar e outra: nao adianta procurar uma versao "com
+    texto", porque esta tem; o que resolve e conseguir o arquivo na origem ou
+    passar OCR por cima.
+    """
+
+
 @dataclass
 class ResultadoImportacao:
     """O que aconteceu com um arquivo. Alimenta o relatorio final da tela."""
@@ -241,6 +256,16 @@ class ServicoImportacao:
             raise PdfSemCamadaDeTexto(
                 "o PDF nao tem camada de texto (provavelmente escaneado); "
                 "seria preciso OCR, que ainda nao faz parte do pipeline"
+            )
+
+        # Depois da checagem de volume, nunca antes: um PDF escaneado tem texto
+        # de menos para a fracao de legibilidade significar qualquer coisa, e
+        # responderia com a mensagem errada.
+        if not documento.texto_legivel:
+            raise PdfComTextoIlegivel(
+                "o PDF tem camada de texto, mas ela nao devolve letras e sim codigos "
+                "de glifo (fonte embutida sem tabela ToUnicode); procure o arquivo "
+                "original na banca ou passe OCR por cima"
             )
 
         self._log(

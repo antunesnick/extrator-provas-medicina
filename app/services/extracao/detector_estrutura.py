@@ -89,6 +89,33 @@ class RelatorioEstrutura:
         )
 
 
+def _e_ancora_de_questao(linha: Linha) -> bool:
+    """Marcador FORTE de questao e conteudo por definicao -- nunca layout.
+
+    Sem esta guarda o detector se volta contra a prova. A chave de recorrencia
+    mascara digitos de proposito, para que "Pagina 12 de 20" e "Pagina 13 de 20"
+    virem uma linha so; mas a mesma mascara faz ``QUESTAO 11 ____``,
+    ``QUESTAO 13 ____`` e ``QUESTAO 15 ____`` colapsarem em ``QUESTAO # ____``.
+    Numa banca que abre toda questao assim, sempre na mesma altura da coluna,
+    isso e indistinguivel de um cabecalho -- e o detector apagava a abertura de
+    22 das 100 questoes. O teto de 25% foi o unico motivo de nao ter apagado
+    todas.
+
+    **Forte**, e nao qualquer marcador, porque a distincao e justamente o que
+    separa os dois casos: ``QUESTAO 11`` tem prefixo e ``11.`` tem delimitador,
+    enquanto o numero de pagina no rodape e um ``11`` cru. Proteger o marcador
+    fraco devolveria a vida ao rodape numerado que este modulo existe para tirar.
+
+    O import e local para nao criar dependencia de modulo entre o detector e o
+    segmentador: aqui so se pergunta "isto abre uma questao?", que e vocabulario
+    do segmentador, e a resposta nao muda nada na segmentacao em si.
+    """
+    from app.services.extracao.segmentador import _ler_numero
+
+    marcador = _ler_numero(linha)
+    return marcador is not None and marcador.forte
+
+
 def _chave(linha: Linha) -> str:
     """Forma canonica para comparar linhas entre paginas."""
     return mascarar_numeros(normalizar(linha.texto))
@@ -234,6 +261,8 @@ def detectar_ruido(
     for pagina in documento.paginas:
         vistos: set[str] = set()
         for linha in pagina.linhas:
+            if _e_ancora_de_questao(linha):
+                continue
             chave = _chave(linha)
             if not chave or len(chave) > COMPRIMENTO_MAXIMO_RUIDO or chave in vistos:
                 continue

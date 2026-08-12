@@ -44,16 +44,62 @@ from app.utils.texto import limpar
 # sinais de *forca* do marcador: o prefixo ("Questao 12") e o delimitador
 # ("12."). Um numero cru, sem nenhum dos dois, e um marcador fraco -- ver
 # `_exige_marcador_forte`.
+#
+# Delimitadores. Alem da pontuacao ASCII, a faixa U+2010..U+2015 (hifen
+# tipografico, travessao, traco longo) aparece em "QUESTAO 04 - A organizacao":
+# para o olho e o mesmo sinal, para o regex nao e, e tratar so o hifen ASCII
+# perdia a banca inteira. Escrita como codepoint de proposito -- o glifo literal
+# no codigo-fonte e indistinguivel do hifen comum, e o proximo a ler nao teria
+# como saber que a diferenca era intencional.
+_DELIM = r"[.)\]:\u2010-\u2015-]"
+
+# **Espaco depois do delimitador nao pode ser exigido.** Duas bancas do corpus
+# escrevem "6)Homem de 40 anos" e "A)A Atencao Especializada", sem espaco algum
+# -- e o PDF entrega isso como UM fragmento so. Exigir `\s+` fazia a primeira
+# devolver zero questoes e a segunda, 40 questoes sem nenhuma alternativa.
+#
+# Mas afrouxar para `\s*` sozinho transformaria "12.5 mg/dL" em marcador da
+# questao 12. Por isso a alternancia: **com** espaco, o resto pode ser
+# qualquer coisa (comportamento antigo); **sem** espaco, o resto tem de comecar
+# por letra. Numero colado em delimitador e medida, nao marcador.
+_COLADO = r"(?:\s+(?=\S)|(?=[^\W\d_]))"
+
+# Para LETRA a ressalva do digito nao se aplica, e aplica-la custa caro. "12.5"
+# tem leitura de medida; "a)2" nao tem nenhuma -- letra seguida de delimitador e
+# marcador ou nao e nada. Exigir letra depois do delimitador fazia sumir toda
+# questao de associacao de colunas, cujas alternativas sao "a)2 - 5 - 1 - 3 - 4".
+# Quem protege contra falso positivo aqui e a geometria (sarjeta das letras) e a
+# sequencia (a letra tem de ser a proxima esperada), nao o formato do que vem
+# depois.
+_COLADO_LETRA = r"\s*(?=\S)"
+
+_PREFIXO_NUM = r"(?P<pref>quest[aã]o\s*|quest\.\s*|q\.\s*)"
 _NUMERO = re.compile(
-    r"^(?P<pref>quest[aã]o\s*|q\.\s*)?(?P<num>\d{1,3})\s*(?P<suf>[.)\]:\-])?\s*$",
+    rf"^{_PREFIXO_NUM}?(?P<num>\d{{1,3}})\s*(?P<suf>{_DELIM})?\s*$",
     re.IGNORECASE,
 )
 _NUMERO_COM_TEXTO = re.compile(
-    r"^(?P<pref>quest[aã]o\s*|q\.\s*)?(?P<num>\d{1,3})\s*(?P<suf>[.)\]:\-])\s+(?=\S)",
+    rf"^{_PREFIXO_NUM}?(?P<num>\d{{1,3}})\s*(?P<suf>{_DELIM}){_COLADO}",
     re.IGNORECASE,
 )
-_LETRA = re.compile(r"^(?P<pref>[(\[])?(?P<num>[a-eA-E])(?P<suf>[)\].:\-])?\s*$")
-_LETRA_COM_TEXTO = re.compile(r"^(?P<pref>[(\[])?(?P<num>[a-eA-E])(?P<suf>[)\].:\-])\s+(?=\S)")
+# "QUESTAO11 ______" e "QUESTAO 11 Uma paciente...": com o prefixo escrito por
+# extenso o delimitador vira opcional, porque a palavra ja e sinal suficiente de
+# que ali comeca uma questao. Sem esta variante, a banca que escreve
+# "QUESTAO11" sem pontuacao nenhuma nao tinha marcador algum.
+_NUMERO_PREFIXADO = re.compile(
+    rf"^{_PREFIXO_NUM}(?P<num>\d{{1,3}})\s*(?P<suf>{_DELIM})?\s*(?=\S|$)",
+    re.IGNORECASE,
+)
+
+_LETRA = re.compile(rf"^(?P<pref>[(\[])?(?P<num>[a-eA-E])(?P<suf>{_DELIM})?\s*$")
+_LETRA_COM_TEXTO = re.compile(
+    rf"^(?P<pref>[(\[])?(?P<num>[a-eA-E])(?P<suf>{_DELIM}){_COLADO_LETRA}"
+)
+
+# Filete de preenchimento com que algumas bancas completam a linha do marcador
+# ("QUESTAO 11 ______________________"). Sem remover, a fileira de underscores
+# abre o enunciado da questao.
+_FILETE = re.compile(r"[_.\u2010-\u2015-]{3,}")
 
 # Tolerancia horizontal para considerar que um marcador esta "na sarjeta".
 TOLERANCIA_SARJETA = 4.0
@@ -136,12 +182,17 @@ class Marcador:
     forte: bool
 
 
-def _ler_marcador(linha: Linha, padrao_isolado, padrao_com_texto) -> Marcador | None:
+def _ler_marcador(linha: Linha, padrao_isolado, *padroes_com_texto) -> Marcador | None:
     """Devolve o `Marcador` se a linha comeca com um.
 
     Cobre os dois jeitos que o PDF pode entregar a mesma coisa: o marcador como
     fragmento proprio (``"1."`` + ``"Em relacao a..."``) ou colado ao texto em
-    um unico fragmento (``"1. Em relacao a..."``).
+    um unico fragmento (``"1. Em relacao a..."``, ``"6)Homem de 40 anos"``).
+
+    Os padroes com texto sao tentados em ordem, do mais exigente para o mais
+    permissivo: quem casar primeiro decide. O ultimo da fila costuma ser o que
+    dispensa o delimitador, e deixa-lo por ultimo garante que uma linha bem
+    pontuada seja lida pela regra estrita.
     """
     if not linha.fragmentos:
         return None
@@ -151,23 +202,30 @@ def _ler_marcador(linha: Linha, padrao_isolado, padrao_com_texto) -> Marcador | 
     m = padrao_isolado.match(primeiro)
     if m:
         resto = limpar(" ".join(f.texto for f in linha.fragmentos[1:]))
-        return Marcador(m.group("num"), resto, bool(m.group("pref") or m.group("suf")))
+        return Marcador(m.group("num"), _sem_filete(resto), bool(m.group("pref") or m.group("suf")))
 
-    m = padrao_com_texto.match(primeiro)
-    if m:
+    for padrao in padroes_com_texto:
+        m = padrao.match(primeiro)
+        if not m:
+            continue
         resto_primeiro = primeiro[m.end() :]
         demais = " ".join(f.texto for f in linha.fragmentos[1:])
         return Marcador(
             m.group("num"),
-            limpar(f"{resto_primeiro} {demais}"),
+            _sem_filete(limpar(f"{resto_primeiro} {demais}")),
             bool(m.group("pref") or m.group("suf")),
         )
 
     return None
 
 
+def _sem_filete(texto: str) -> str:
+    """Tira o preenchimento decorativo que segue o marcador em algumas bancas."""
+    return limpar(_FILETE.sub(" ", texto))
+
+
 def _ler_numero(linha: Linha) -> Marcador | None:
-    return _ler_marcador(linha, _NUMERO, _NUMERO_COM_TEXTO)
+    return _ler_marcador(linha, _NUMERO, _NUMERO_COM_TEXTO, _NUMERO_PREFIXADO)
 
 
 def _ler_letra(linha: Linha) -> Marcador | None:

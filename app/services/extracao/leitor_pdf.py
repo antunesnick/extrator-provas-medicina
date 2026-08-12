@@ -39,6 +39,19 @@ _FLAG_ITALICO = 1 << 1
 # atual não o processa, mas registra o motivo em vez de devolver questões vazias.
 MIN_CHARS_POR_PAGINA = 120
 
+# Fração mínima de caracteres legíveis para a camada de texto valer alguma
+# coisa. Texto português real passa de 99%; o PDF com fonte sem `ToUnicode` do
+# corpus fica em ~55%, porque devolve códigos de glifo no lugar das letras.
+FRACAO_MINIMA_LEGIVEL = 0.80
+_PONTUACAO = frozenset(
+    # Acento agudo, grau, ordinais e travessoes vao por codepoint: no meio de
+    # uma string de pontuacao eles sao visualmente indistinguiveis dos primos
+    # ASCII, e o proximo leitor nao teria como saber se a escolha foi de
+    # proposito.
+    ".,;:!?()[]{}\"'`^~-/\\|@#$%&*+=<>_"
+    "\u00b4\u00b0\u00ba\u00aa\u2013\u2014"
+)
+
 
 @dataclass(frozen=True)
 class Fragmento:
@@ -159,6 +172,31 @@ class Documento:
         chars = sum(len(linha.texto) for p in self.paginas for linha in p.linhas)
         return chars / self.total_paginas >= MIN_CHARS_POR_PAGINA
 
+    @property
+    def texto_legivel(self) -> bool:
+        """A camada de texto diz alguma coisa, ou são só códigos de glifo?
+
+        Existe um terceiro estado entre "tem texto" e "é escaneado", e uma prova
+        do corpus caiu exatamente nele: o PDF **tem** camada de texto, farta o
+        bastante para passar em `tem_camada_texto`, mas a fonte foi embutida sem
+        `ToUnicode`. O extrator recebe os códigos internos dos glifos
+        (``'\\x19\\x1a\\x1b\\x1c\\x1d !"#$"%'``) em vez das letras — texto para o
+        PDF, lixo para qualquer leitor.
+
+        Sem esta checagem o sintoma vira "nenhuma questão encontrada", que manda
+        procurar o defeito no segmentador. O defeito está no arquivo, e a saída é
+        a mesma do escaneado: OCR.
+
+        O critério é a **fração de caracteres legíveis** — letra, dígito,
+        pontuação comum ou espaço. Texto português real fica perto de 100%;
+        o arquivo quebrado do corpus fica abaixo de 60%.
+        """
+        amostra = "".join(linha.texto for p in self.paginas for linha in p.linhas)[:20000]
+        if not amostra:
+            return False
+        legiveis = sum(1 for ch in amostra if ch.isalnum() or ch.isspace() or ch in _PONTUACAO)
+        return legiveis / len(amostra) >= FRACAO_MINIMA_LEGIVEL
+
     def linhas_em_ordem(self, incluir_ruido: bool = False) -> list[Linha]:
         """Todas as linhas do documento na ordem em que um humano as leria.
 
@@ -251,11 +289,42 @@ def _decidir_layout(votos: list[bool | None]) -> bool:
     return sum(validos) > len(validos) / 2
 
 
+# Quanto de uma coluna um fragmento precisa cobrir para "ocupar" essa coluna.
+FRACAO_OCUPACAO_COLUNA = 0.25
+
+
 def _coluna_de(frag: Fragmento, colunas: list[tuple[float, float]]) -> int:
-    """Coluna pelo centro do fragmento — mais estável que pela borda esquerda."""
-    centro = (frag.x0 + frag.x1) / 2
+    """Coluna do fragmento — pelo centro, exceto quando ele atravessa a página.
+
+    O centro é mais estável que a borda esquerda para o caso comum (um trecho
+    inteiramente dentro de uma coluna), e é por isso que ele continua sendo a
+    regra. Mas ele erra feio no caso que não é comum: **a linha de largura
+    total**, que existe em prova de duas colunas sempre que uma questão traz
+    tabela larga ou figura.
+
+    O defeito que isto corrige: numa prova do corpus as questões 51 a 55 são
+    full-width. A 51 termina em x=561,2 (centro 297,6) e cai na coluna 0; a 52
+    termina em x=563,8 (centro 298,9) e cai na coluna 1 — **um ponto e meio de
+    diferença decide a coluna**. Como a sarjeta é aprendida por coluna, o
+    marcador da 52 passou a ser comparado com a sarjeta da coluna direita
+    (x≈331) enquanto ele estava em x=34, e as questões 52 a 55 foram descartadas
+    em silêncio.
+
+    A regra: um fragmento que ocupa uma fatia relevante de **duas ou mais**
+    colunas não pertence a nenhuma delas — ele é da página. Nesse caso vale a
+    coluna onde ele começa, que é onde o olho começa a ler e onde o marcador
+    está.
+    """
+    ocupadas = sum(
+        1
+        for cx0, cx1 in colunas
+        if (cx1 - cx0) > 0
+        and (min(frag.x1, cx1) - max(frag.x0, cx0)) / (cx1 - cx0) >= FRACAO_OCUPACAO_COLUNA
+    )
+    referencia = frag.x0 if ocupadas > 1 else (frag.x0 + frag.x1) / 2
+
     for i, (cx0, cx1) in enumerate(colunas):
-        if cx0 <= centro < cx1:
+        if cx0 <= referencia < cx1:
             return i
     return len(colunas) - 1
 
