@@ -50,7 +50,9 @@ class TemaRepository:
         self.db = db
 
     # ------------------------------------------------------------------ escrita
-    def criar(self, nome: str, tema_pai_id: int | None = None, prompt_label: str | None = None) -> Tema:
+    def criar(
+        self, nome: str, tema_pai_id: int | None = None, prompt_label: str | None = None
+    ) -> Tema:
         """Cria um tema. Idempotente pelo nome -- devolve o existente se houver."""
         existente = self.buscar_por_nome(nome)
         if existente is not None:
@@ -193,8 +195,7 @@ class TemaRepository:
         Uma consulta so: a tela do Modo Automatico lista trinta temas e uma
         consulta por tema seria trinta idas ao banco a cada abertura.
         """
-        linhas = self.db.conn.execute(
-            """
+        linhas = self.db.conn.execute("""
             WITH vinculo AS (
                 -- O vinculo direto e o herdado pelo pai, na mesma coluna.
                 SELECT qt.questao_id, qt.tema_id FROM questao_temas qt
@@ -214,8 +215,7 @@ class TemaRepository:
              WHERE t.ativo = 1
              GROUP BY t.id
              ORDER BY t.nome
-            """
-        ).fetchall()
+            """).fetchall()
         contagens = [
             TemaComContagem(Tema.de_linha(linha), linha["total"], linha["disponiveis"])
             for linha in linhas

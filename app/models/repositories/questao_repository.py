@@ -290,9 +290,7 @@ class QuestaoRepository:
         return self._montar(Questao.de_linha(linha))
 
     def buscar_por_uuid(self, uuid: str) -> Questao | None:
-        linha = self.db.conn.execute(
-            "SELECT * FROM questoes WHERE uuid = ?", (uuid,)
-        ).fetchone()
+        linha = self.db.conn.execute("SELECT * FROM questoes WHERE uuid = ?", (uuid,)).fetchone()
         if linha is None:
             return None
         return self._montar(Questao.de_linha(linha))
@@ -376,19 +374,15 @@ class QuestaoRepository:
         parametros: list = []
 
         if texto and texto.strip():
-            condicoes.append(
-                "id IN (SELECT rowid FROM questoes_fts WHERE questoes_fts MATCH ?)"
-            )
+            condicoes.append("id IN (SELECT rowid FROM questoes_fts WHERE questoes_fts MATCH ?)")
             parametros.append(_consulta_fts(texto))
         if tema_id is not None:
             # Hierarquia: filtrar "Clinica Medica" traz Cardiologia junto.
-            condicoes.append(
-                """id IN (
+            condicoes.append("""id IN (
                     SELECT qt.questao_id FROM questao_temas qt
                      WHERE qt.tema_id = ?
                         OR qt.tema_id IN (SELECT id FROM temas WHERE tema_pai_id = ?)
-                )"""
-            )
+                )""")
             parametros.extend([tema_id, tema_id])
 
         sql = f"SELECT * FROM {origem}"
@@ -411,9 +405,7 @@ class QuestaoRepository:
         """
         import random
 
-        candidatos = self.buscar(
-            tema_id=tema_id, apenas_disponiveis=True, limite=100_000
-        )
+        candidatos = self.buscar(tema_id=tema_id, apenas_disponiveis=True, limite=100_000)
         if quantidade >= len(candidatos):
             return candidatos
         return random.Random(semente).sample(candidatos, quantidade)

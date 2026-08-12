@@ -83,9 +83,7 @@ class ProvaOriginalRepository:
                 (str(status), mensagem_erro, prova_id),
             )
 
-    def atualizar_contagens(
-        self, prova_id: int, total_paginas: int, total_questoes: int
-    ) -> None:
+    def atualizar_contagens(self, prova_id: int, total_paginas: int, total_questoes: int) -> None:
         with self.db.transaction() as conn:
             conn.execute(
                 """
