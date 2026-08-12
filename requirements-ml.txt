@@ -1,0 +1,42 @@
+# =============================================================================
+# Pipeline de ML — opcional, e opcional de verdade: o app funciona inteiro sem
+# nada deste arquivo (classificador léxico + gabarito digitado à mão).
+#
+# O motor de ML recomendado NÃO é um pacote Python: é o **Ollama**, um servidor
+# local que o app acessa por HTTP. Ele resolve as duas tarefas que exigem
+# conhecimento médico — identificar o tema e sugerir a resposta.
+#
+#   1. instale o Ollama:  https://ollama.com/download
+#   2. baixe um modelo:   ollama pull qwen2.5:3b-instruct-q4_K_M   (~2 GB)
+#   3. deixe-o rodando; o app detecta sozinho e habilita os botões
+#
+# Não há dependência Python para isso: `app/services/ml/llm_local.py` fala com
+# o servidor usando `urllib` da biblioteca padrão. Um SDK traria dezenas de
+# transitivas para montar um POST.
+#
+# ---------------------------------------------------------------------------
+# O que sobrou aqui é só para o backend zero-shot alternativo (transformers).
+# Ele é mais lento por questão que o LLM local e não sugere gabarito — existe
+# para quem prefira não instalar servidor nenhum.
+#
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+#   pip install -r requirements-ml.txt
+# =============================================================================
+
+torch>=2.4                  # instalar preferencialmente a build CPU-only
+transformers>=4.44          # pipeline zero-shot de classificação temática
+
+# -----------------------------------------------------------------------------
+# Removidos, com o motivo — a lista anterior prometia infraestrutura que não
+# existe no código:
+#
+#   scikit-learn   um classificador supervisionado treinado com as 230 questões
+#                  do corpus chegou a 44,6% de acurácia (25 classes, ~9 exemplos
+#                  por classe) — pior que o léxico que ele imitava, e prevendo
+#                  as questões desconhecidas com ~10% de confiança. Voltará a
+#                  fazer sentido quando o acervo tiver alguns milhares de
+#                  questões corrigidas à mão.
+#   sentence-transformers   a deduplicação hoje é por hash de conteúdo, exata
+#   spacy          nenhuma etapa usa sentencização ou NER
+#   ollama (SDK)   substituído por urllib, sem dependência
+# -----------------------------------------------------------------------------

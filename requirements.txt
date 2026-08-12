@@ -1,0 +1,32 @@
+# =============================================================================
+# Dependências de runtime (núcleo do app — SEM os modelos pesados de ML).
+# Instalação: pip install -r requirements.txt
+# Para o pipeline de ML local, instale também: -r requirements-ml.txt
+#
+# Só entra aqui o que o código realmente importa. Uma lista com dependências
+# "para o futuro" cobra o preço agora: download maior, superfície de conflito
+# maior e, em Python novo (3.13/3.14), falha de build de um pacote que nenhuma
+# linha do projeto usa.
+#
+# Faixas em vez de pinos exatos porque o alvo vai de 3.11 (CI) a 3.14 (máquina
+# de desenvolvimento), e pino exato de wheel binário não cobre as duas pontas.
+# =============================================================================
+
+# ------------------------------------------------------------------------ GUI
+PyQt6>=6.7,<7
+
+# ------------------------------------------------- leitura e análise de PDF
+PyMuPDF>=1.24,<2          # extração com bounding boxes; base do detector estrutural
+
+# ------------------------------------------------------- geração de documentos
+reportlab>=4.2,<5         # caderno de prova e folha de gabarito em PDF
+Pillow>=10.4              # dependência do reportlab para imagens (ECG, RX)
+
+# -----------------------------------------------------------------------------
+# Previstos, ainda não usados por nenhuma linha de código — instale sob demanda:
+#
+#   pdfplumber    fallback para tabelas e PDFs com layout hostil
+#   pypdf         merge/split e leitura de metadados
+#   pytesseract   OCR para prova escaneada (exige o binário `tesseract` no SO)
+#   rapidfuzz     similaridade para deduplicação aproximada
+# -----------------------------------------------------------------------------

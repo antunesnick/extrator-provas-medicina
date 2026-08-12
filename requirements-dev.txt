@@ -1,0 +1,30 @@
+# =============================================================================
+# Ferramentas de desenvolvimento, testes e qualidade.
+# pip install -r requirements.txt -r requirements-dev.txt
+#
+# As faixas são estreitas de propósito nas ferramentas de formatação: black e
+# ruff mudam o estilo entre versões maiores, e uma versão diferente na CI
+# reprovaria código formatado corretamente na máquina do desenvolvedor. É o
+# mesmo motivo pelo qual o workflow instala a partir DESTE arquivo em vez de
+# repetir os pinos — duas listas de versões divergem no primeiro esquecimento.
+# =============================================================================
+
+pytest>=8.3,<10
+pytest-cov>=5.0
+pytest-timeout>=2.3          # o `--timeout=120` do pyproject depende dele
+
+ruff>=0.16,<0.17             # lint + ordenação de imports (substitui flake8/isort)
+black>=26,<27
+mypy>=1.11
+
+# -----------------------------------------------------------------------------
+# Removidos por não serem usados por nenhum teste:
+#
+#   pytest-qt     os testes de GUI usam um QEventLoop próprio (tests/unit/test_gui.py),
+#                 que já resolve a espera por sinal sem mais uma dependência
+#   pytest-mock   os dublês do projeto são classes explícitas, mais legíveis no
+#                 diff do que `mocker.patch`
+#   freezegun     nenhum teste depende do relógio
+#   pre-commit    não há .pre-commit-config.yaml no repositório
+#   types-reportlab  o mypy roda com ignore_missing_imports
+# -----------------------------------------------------------------------------

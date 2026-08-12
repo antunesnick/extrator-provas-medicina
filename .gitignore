@@ -1,0 +1,50 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# Banco e dados locais (NUNCA versionar provas/PDFs de terceiros)
+data/*.db
+data/*.db-wal
+data/*.db-shm
+data/*.backup-*.db
+data/pdfs_originais/*
+data/midias/*
+data/exports/*
+data/logs/*
+!data/**/.gitkeep
+
+# Provas reais usadas pelos testes de integracao. Mesma regra de cima: sao
+# provas de titulo da SBMFC, material de terceiros, e este repositorio e
+# publico. Os testes ja contam com a ausencia delas -- veja o
+# `skipif(not _disponiveis())` em tests/integration/: sem os arquivos a suite
+# roda inteira e so as verificacoes contra o corpus real ficam de fora.
+# Para reproduzir a medicao do README, ponha os PDFs e planilhas aqui.
+tests/fixtures/*.pdf
+tests/fixtures/*.xlsx
+
+# Testes e cobertura
+.pytest_cache/
+.coverage
+coverage.xml
+htmlcov/
+junit-*.xml
+
+# Ferramentas
+.ruff_cache/
+.mypy_cache/
+
+# IDE / SO
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Modelos de ML baixados (torch/transformers/spacy) na raiz do projeto.
+# A barra inicial NAO e decorativa: `models/` sem ela casa com qualquer pasta
+# chamada `models` em qualquer nivel -- e a primeira vitima seria `app/models/`,
+# ou seja, as entidades, os repositorios e as migrations do banco sairiam do
+# repositorio em silencio.
+/models/

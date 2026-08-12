@@ -1,0 +1,52 @@
+[project]
+name = "extrator-provas"
+version = "0.1.0"
+description = "Extrator e gerenciador de provas de medicina em PDF (desktop, single-user)"
+requires-python = ">=3.11"
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --timeout=120"
+markers = [
+    "ml: testes que carregam modelos de ML (lentos, excluídos do CI padrão)",
+    "gui: testes que instanciam widgets PyQt6",
+    "integracao: testes de ponta a ponta (PDF -> banco -> PDF)",
+]
+filterwarnings = ["error::DeprecationWarning:app.*"]
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["app/views/resources/*", "*/__init__.py"]
+
+[tool.coverage.report]
+exclude_lines = ["pragma: no cover", "if TYPE_CHECKING:", "raise NotImplementedError"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+exclude = [".venv", "data", "app/views/resources"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "C4", "SIM", "PTH", "RUF"]
+ignore = [
+    "E501",  # comprimento de linha é responsabilidade do black
+    # N818 exige sufixo "Error" no nome das exceções. O domínio deste projeto é
+    # escrito em português e `ProvaJaImportadaError` não é lido por ninguém como
+    # melhor que `ProvaJaImportada`; o sufixo só faz sentido em inglês.
+    "N818",
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["N802", "N806"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+ignore_missing_imports = true
+exclude = ["tests/", "data/"]
